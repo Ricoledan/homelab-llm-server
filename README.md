@@ -9,7 +9,7 @@ Features:
 - Experiment with self-hosted AI models
 - Deploy on edge devices or homelab servers
 
-## Getting Started:
+## Project Structure
 
 ```text
 homelab-llm-server/
