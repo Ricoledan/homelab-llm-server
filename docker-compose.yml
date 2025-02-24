@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  llama-server:
+    build: .
+    container_name: ${CONTAINER_NAME}
+    restart: unless-stopped
+    ports:
+      - "${SERVER_PORT}:${SERVER_PORT}"
+    volumes:
+      - ${MODEL_DIR}:${MODEL_DIR}
+    environment:
+      - MODEL_PATH=${MODEL_PATH}
+      - SERVER_PORT=${SERVER_PORT}
+      - ROC_ENABLE=${ROC_ENABLE}
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: amdgpu
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: "32G"
