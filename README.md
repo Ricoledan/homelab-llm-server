@@ -2,7 +2,10 @@
 
 🔬  HomeLab LLM Server is a self-hosted AI server leveraging llama.cpp and the DeepSeek 3 33B Q4_K model for local inference. This setup is optimized for AMD GPUs with ROCm acceleration and can be deployed via Docker Compose.
 
-Features:
+## Features
+
+Use Cases:
+
 	•	Run your own private AI assistant at home
 	•	Integrate with home automation & chatbots
 	•	Experiment with self-hosted AI models
