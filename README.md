@@ -65,14 +65,14 @@ Download model and place it in models/:
 
 ```bash
 mkdir -p models
-mv /path/to/DeepSeek-R1-Distill-Qwen-32B-IQ4_XS.gguf models/
+mv /path/to/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf models/
 ```
 
 ### Build & Run the Container
 
 ```bash
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ### Verify GPU Utilization
@@ -96,11 +96,11 @@ curl -X POST http://localhost:8080/completion \
 ## Commands
 
 ```bash
-docker-compose build --no-cache
+docker compose build --no-cache
 ```
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 ```bash
