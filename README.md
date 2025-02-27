@@ -1,7 +1,7 @@
 # homelab-llm-server
 
 🔬 HomeLab LLM Server is a self-hosted AI server leveraging llama.cpp and the DeepSeek 3 33B Q4_K model for local
-inference. This setup is optimized for AMD GPUs with ROCm acceleration and can be deployed via Docker Compose.
+inference. This setup is optimized for AMD GPUs with ROCm acceleration and deployed via Docker Compose.
 
 Features:
 
@@ -54,7 +54,7 @@ sudo apt update && sudo apt install -y docker.io docker-compose
 CONTAINER_NAME=homelab-llm-server
 SERVER_PORT=8080
 MODEL_DIR=./models
-MODEL_PATH=/models/deepseek-3-33b-q4_k.gguf
+MODEL_PATH=/models/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf
 CONTEXT_SIZE=4096
 ROC_ENABLE=1
 ```
