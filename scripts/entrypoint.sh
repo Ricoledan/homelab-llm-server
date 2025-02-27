@@ -2,25 +2,21 @@
 
 echo "Starting Llama.cpp Server..."
 
-# Check if MODEL_PATH is set
 if [ -z "$MODEL_PATH" ]; then
     echo "Error: MODEL_PATH is not set. Please check your environment variables."
     exit 1
 fi
 
-# Check if SERVER_PORT is set; default to 8080 if not
 if [ -z "$SERVER_PORT" ]; then
     echo "Warning: SERVER_PORT is not set. Defaulting to 8080."
     SERVER_PORT=8080
 fi
 
-# Verify the model file exists
 if [ ! -f "$MODEL_PATH" ]; then
     echo "Error: Model file not found at $MODEL_PATH"
     exit 1
 fi
 
-# Check if ROCm is enabled
 if [[ "$ROC_ENABLE" == "1" ]]; then
     echo "ROCm enabled. Checking GPU..."
     if ! command -v rocminfo &>/dev/null || ! /opt/rocm/bin/rocm-smi &>/dev/null; then
@@ -28,7 +24,6 @@ if [[ "$ROC_ENABLE" == "1" ]]; then
     fi
 fi
 
-# Launch the server
 echo "Launching Llama.cpp server with model: $MODEL_PATH on port $SERVER_PORT..."
 exec /usr/local/bin/llama-server \
 -m "$MODEL_PATH" \
