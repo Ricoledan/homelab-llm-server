@@ -1,8 +1,9 @@
 ARG UBUNTU_VERSION=22.04
 ARG ROCM_VERSION=5.7
-FROM rocm/dev-ubuntu-${UBUNTU_VERSION}:${ROCM_VERSION} AS build
+FROM rocm/dev-ubuntu-${UBUNTU_VERSION}:${ROCM_VERSION}
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 
 RUN apt update && apt install -y \
     build-essential \
@@ -26,22 +27,18 @@ WORKDIR /app
 RUN git clone --depth=1 https://github.com/ggerganov/llama.cpp.git
 
 WORKDIR /app/llama.cpp
-RUN mkdir build && cd build && \
-cmake .. -DGGML_HIP=ON \
-         -DAMDGPU_TARGETS=gfx1100 \
-         -DLLAMA_BUILD_SERVER=ON \
-         -G Ninja \
-         -DCMAKE_PREFIX_PATH=/opt/rocm \
-&& ninja && cp bin/llama-server /usr/local/bin/llama-server
 
-FROM rocm/dev-ubuntu-${UBUNTU_VERSION}:${ROCM_VERSION} AS server
+RUN mkdir -p build && cd build && \
+    cmake .. -DGGML_HIP=ON \
+             -DAMDGPU_TARGETS=gfx1100 \
+             -DLLAMA_BUILD_SERVER=ON \
+             -DBUILD_SHARED_LIBS=ON \
+             -DCMAKE_INSTALL_PREFIX=/usr/local \
+             -G Ninja \
+             -DCMAKE_PREFIX_PATH=/opt/rocm \
+    && ninja && ninja install
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt update && apt install -y libnuma1 curl && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY --from=build /usr/local/bin/llama-server /usr/local/bin/
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/llama.conf && ldconfig
 
 WORKDIR /app
 
