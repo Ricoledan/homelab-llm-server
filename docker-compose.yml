@@ -10,7 +10,7 @@ services:
     volumes:
       - "${MODEL_DIR}:/app/models:rw"
     environment:
-      - MODEL_PATH=/app/models/${MODEL_FILENAME}
+      - MODEL_PATH=${MODEL_DIR}/${MODEL_FILENAME}
       - SERVER_PORT=${SERVER_PORT:-8080}
       - ROC_ENABLE=${ROC_ENABLE:-1}
       - ROCM_VISIBLE_DEVICES=all
