@@ -106,3 +106,4 @@ docker compose up -d
 ```bash
 docker logs homelab-llm-server
 ```
+
