@@ -188,7 +188,3 @@ homelab-llm-server/
 ├── .env.example        # Configuration template
 └── README.md           # This file
 ```
-
-## License
-
-MIT License - See LICENSE file for details
