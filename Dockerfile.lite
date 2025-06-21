@@ -1,0 +1,50 @@
+# Lightweight Dockerfile using Ubuntu base with ROCm runtime only
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install ROCm runtime and dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && wget -q -O - https://repo.radeon.com/rocm/rocm.gpg.key | apt-key add - \
+    && echo 'deb [arch=amd64] https://repo.radeon.com/rocm/apt/6.0 jammy main' > /etc/apt/sources.list.d/rocm.list \
+    && apt-get update && apt-get install -y \
+    rocm-libs \
+    hipblas \
+    rocblas \
+    build-essential \
+    cmake \
+    git \
+    curl \
+    ninja-build \
+    libnuma-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Build llama.cpp
+RUN git clone --depth=1 https://github.com/ggerganov/llama.cpp.git && \
+    cd llama.cpp && \
+    mkdir build && cd build && \
+    cmake .. -DGGML_HIP=ON \
+             -DAMDGPU_TARGETS=gfx1100 \
+             -DLLAMA_BUILD_SERVER=ON \
+             -DCMAKE_PREFIX_PATH=/opt/rocm \
+             -G Ninja && \
+    ninja && \
+    cp bin/llama-server /usr/local/bin/ && \
+    cd ../.. && rm -rf llama.cpp
+
+WORKDIR /app
+
+EXPOSE 8080
+
+COPY scripts/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["/entrypoint.sh"]

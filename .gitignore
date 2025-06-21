@@ -1,2 +1,68 @@
+# Environment files
 .env
-models/DeepSeek-R1-Distill-Qwen-32B-Q4_K_M.gguf
+.env.local
+.env.*.local
+!config/default.env
+!config/.env.defaults
+
+# Models directory (large files)
+models/*.gguf
+models/*.bin
+!models/.gitkeep
+
+# Logs and runtime
+logs/
+*.log
+*.pid
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-*
+.project
+.settings/
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.Python
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Docker
+.docker/
+
+# Testing
+coverage/
+.coverage
+.pytest_cache/
+test-results/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Cache
+.cache/
+cache/

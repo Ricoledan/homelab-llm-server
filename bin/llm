@@ -1,0 +1,412 @@
+#!/usr/bin/env bash
+
+# HomeLab LLM Server CLI
+# A user-friendly interface for managing and interacting with your local LLM server
+
+set -e
+
+# Script directory (bin/)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Project root directory
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_DIR"
+
+# Load environment variables
+if [[ -f .env ]]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Print colored output
+print_color() {
+    echo -e "${2}${1}${NC}"
+}
+
+# Print help
+print_help() {
+    cat << EOF
+$(print_color "HomeLab LLM Server CLI" "$BLUE")
+
+Usage: llm [COMMAND] [OPTIONS]
+
+Commands:
+  start [--cpu]       Start the LLM server (--cpu for CPU-only mode)
+  stop                Stop the LLM server
+  restart             Restart the LLM server
+  status              Show server status
+  logs                View server logs
+  monitor             Real-time monitoring
+  
+  chat                Interactive chat with the model
+  query <prompt>      Send a single query
+  
+  model list          List available models
+  model download      Download a new model
+  model switch <name> Switch to a different model
+  model current       Show current model
+  
+  config show         Show current configuration
+  config edit         Edit configuration
+  
+  update              Update the server image
+  help                Show this help message
+
+Examples:
+  llm start                    # Start the server
+  llm chat                     # Start interactive chat
+  llm query "Write hello world in Python"
+  llm model download           # Download a new model
+  llm logs -f                  # Follow server logs
+
+EOF
+}
+
+# Check if server is running
+is_running() {
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER_NAME}$"
+}
+
+# Start server
+start_server() {
+    if is_running; then
+        print_color "Server is already running" "$YELLOW"
+        return
+    fi
+    
+    # Choose docker-compose file based on available options
+    COMPOSE_FILE="docker-compose.yml"
+    
+    # Check if we should use CPU version
+    if [[ "$1" == "--cpu" ]]; then
+        COMPOSE_FILE="docker-compose.cpu.yml"
+        print_color "Starting LLM server (CPU mode)..." "$GREEN"
+    elif command -v rocminfo &> /dev/null && rocminfo | grep -q "gfx"; then
+        # Try GPU version first if ROCm is available
+        print_color "Starting LLM server (GPU mode)..." "$GREEN"
+        if ! docker compose up -d 2>/dev/null; then
+            print_color "GPU build failed, falling back to CPU mode..." "$YELLOW"
+            COMPOSE_FILE="docker-compose.cpu.yml"
+        fi
+    else
+        print_color "Starting LLM server (CPU mode)..." "$GREEN"
+        COMPOSE_FILE="docker-compose.cpu.yml"
+    fi
+    
+    # Start with the chosen compose file
+    if [[ "$COMPOSE_FILE" != "docker-compose.yml" ]]; then
+        docker compose -f "$COMPOSE_FILE" up -d
+    fi
+    
+    # Wait for server to be ready
+    print_color "Waiting for server to be ready..." "$YELLOW"
+    local attempts=0
+    while ! curl -s -f "http://localhost:${SERVER_PORT}/health" > /dev/null 2>&1; do
+        sleep 1
+        attempts=$((attempts + 1))
+        if [[ $attempts -gt 30 ]]; then
+            print_color "Server failed to start. Check logs with: llm logs" "$RED"
+            exit 1
+        fi
+    done
+    
+    print_color "✓ Server is ready at http://localhost:${SERVER_PORT}" "$GREEN"
+}
+
+# Stop server
+stop_server() {
+    if ! is_running; then
+        print_color "Server is not running" "$YELLOW"
+        return
+    fi
+    
+    print_color "Stopping LLM server..." "$YELLOW"
+    
+    # Try to stop with different compose files
+    docker compose down 2>/dev/null || \
+    docker compose -f docker-compose.cpu.yml down 2>/dev/null || \
+    docker compose -f docker-compose.prebuilt.yml down 2>/dev/null
+    
+    print_color "✓ Server stopped" "$GREEN"
+}
+
+# Show status
+show_status() {
+    if is_running; then
+        print_color "● Server Status: Running" "$GREEN"
+        echo ""
+        
+        # Get model info
+        MODEL_INFO=$(curl -s http://localhost:${SERVER_PORT}/props 2>/dev/null | jq -r .model_path || echo "Unknown")
+        print_color "Model: $(basename "$MODEL_INFO")" "$BLUE"
+        
+        # Get resource usage
+        echo ""
+        docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" "${CONTAINER_NAME}"
+        
+        # GPU info
+        echo ""
+        print_color "GPU Usage:" "$BLUE"
+        docker exec "${CONTAINER_NAME}" rocm-smi --showmeminfo vram 2>/dev/null | grep -E "GPU\[0\].*VRAM Total|Used" | head -2 || echo "Unable to get GPU info"
+    else
+        print_color "● Server Status: Stopped" "$RED"
+    fi
+}
+
+# Interactive chat mode
+chat_mode() {
+    if ! is_running; then
+        print_color "Server is not running. Starting it now..." "$YELLOW"
+        start_server
+    fi
+    
+    print_color "Entering chat mode. Type 'exit' or Ctrl+C to quit." "$BLUE"
+    print_color "─────────────────────────────────────────────────" "$BLUE"
+    
+    while true; do
+        # Prompt
+        echo -en "${GREEN}You: ${NC}"
+        read -r user_input
+        
+        # Check for exit
+        if [[ "$user_input" == "exit" ]] || [[ "$user_input" == "quit" ]]; then
+            break
+        fi
+        
+        # Skip empty input
+        if [[ -z "$user_input" ]]; then
+            continue
+        fi
+        
+        # Send query
+        echo -en "${BLUE}Assistant: ${NC}"
+        
+        response=$(curl -s -X POST "http://localhost:${SERVER_PORT}/completion" \
+            -H "Content-Type: application/json" \
+            -d "{\"prompt\": \"Human: ${user_input}\n\nAssistant: \", \"n_predict\": 500, \"stop\": [\"Human:\", \"\n\n\"], \"stream\": false}" \
+            2>/dev/null | jq -r .content 2>/dev/null || echo "Error: Failed to get response")
+        
+        echo "$response"
+        echo ""
+    done
+    
+    print_color "\nExiting chat mode." "$BLUE"
+}
+
+# Send single query
+send_query() {
+    if ! is_running; then
+        print_color "Server is not running. Please start it first with: llm start" "$RED"
+        exit 1
+    fi
+    
+    local prompt="$1"
+    if [[ -z "$prompt" ]]; then
+        print_color "Error: No prompt provided" "$RED"
+        exit 1
+    fi
+    
+    response=$(curl -s -X POST "http://localhost:${SERVER_PORT}/completion" \
+        -H "Content-Type: application/json" \
+        -d "{\"prompt\": \"${prompt}\", \"n_predict\": 500}" \
+        2>/dev/null | jq -r .content 2>/dev/null || echo "Error: Failed to get response")
+    
+    echo "$response"
+}
+
+# Model management
+model_command() {
+    case "$1" in
+        list)
+            print_color "Downloaded models:" "$BLUE"
+            echo ""
+            current=$(grep "MODEL_FILENAME=" .env 2>/dev/null | cut -d'=' -f2)
+            
+            # List local models
+            for model in models/*.gguf; do
+                if [[ -f "$model" ]]; then
+                    model_name=$(basename "$model")
+                    size=$(du -h "$model" | cut -f1)
+                    if [[ "$model_name" == "$current" ]]; then
+                        echo "  * $model_name ($size) [ACTIVE]"
+                    else
+                        echo "    $model_name ($size)"
+                    fi
+                fi
+            done
+            
+            echo ""
+            print_color "Available for download:" "$BLUE"
+            ./scripts/download-model.sh --list
+            ;;
+        download)
+            ./scripts/download-model.sh "${@:2}"
+            
+            # Offer to switch to newly downloaded model
+            if [[ $? -eq 0 ]]; then
+                echo ""
+                read -p "Switch to the newly downloaded model? (y/N) " -n 1 -r
+                echo
+                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                    # Get the latest downloaded model
+                    latest_model=$(ls -t models/*.gguf | head -1 | xargs basename)
+                    $0 model switch "$latest_model"
+                fi
+            fi
+            ;;
+        current)
+            if [[ -f .env ]]; then
+                current=$(grep "MODEL_FILENAME=" .env | cut -d'=' -f2)
+                print_color "Current model: $current" "$GREEN"
+                
+                # Show model details if running
+                if is_running; then
+                    model_info=$(curl -s http://localhost:${SERVER_PORT}/props 2>/dev/null | jq -r '.model_path' || echo "")
+                    if [[ -n "$model_info" ]]; then
+                        echo "Model path: $model_info"
+                    fi
+                fi
+            fi
+            ;;
+        switch)
+            if [[ -z "$2" ]]; then
+                # Interactive model selection
+                print_color "Select a model to switch to:" "$BLUE"
+                echo ""
+                
+                # Get list of models
+                models=(models/*.gguf)
+                if [[ ! -f "${models[0]}" ]]; then
+                    print_color "No models found in ./models/" "$RED"
+                    exit 1
+                fi
+                
+                current=$(grep "MODEL_FILENAME=" .env 2>/dev/null | cut -d'=' -f2)
+                
+                # Display numbered list
+                i=1
+                for model in "${models[@]}"; do
+                    model_name=$(basename "$model")
+                    size=$(du -h "$model" | cut -f1)
+                    if [[ "$model_name" == "$current" ]]; then
+                        echo "  $i) $model_name ($size) [CURRENT]"
+                    else
+                        echo "  $i) $model_name ($size)"
+                    fi
+                    ((i++))
+                done
+                
+                echo ""
+                read -p "Enter number (1-$((i-1))): " selection
+                
+                if [[ "$selection" =~ ^[0-9]+$ ]] && [[ "$selection" -ge 1 ]] && [[ "$selection" -lt "$i" ]]; then
+                    selected_model=$(basename "${models[$((selection-1))]}")
+                    set -- "$1" "$selected_model"
+                else
+                    print_color "Invalid selection" "$RED"
+                    exit 1
+                fi
+            fi
+            
+            # Check if model exists
+            if [[ ! -f "models/$2" ]]; then
+                print_color "Error: Model not found: models/$2" "$RED"
+                print_color "Available models:" "$YELLOW"
+                ls -1 models/*.gguf 2>/dev/null | xargs -n1 basename || echo "No models found"
+                exit 1
+            fi
+            
+            # Get current model
+            current_model=$(grep "MODEL_FILENAME=" .env | cut -d'=' -f2)
+            
+            if [[ "$current_model" == "$2" ]]; then
+                print_color "Already using model: $2" "$YELLOW"
+                exit 0
+            fi
+            
+            # Update .env
+            sed -i "s/MODEL_FILENAME=.*/MODEL_FILENAME=$2/" .env
+            print_color "Switching model: $current_model → $2" "$BLUE"
+            
+            # Auto-restart if server is running
+            if is_running; then
+                print_color "Restarting server with new model..." "$YELLOW"
+                stop_server
+                sleep 2
+                start_server
+                print_color "✓ Model switched successfully!" "$GREEN"
+            else
+                print_color "✓ Model switched. Start server with: llm start" "$GREEN"
+            fi
+            ;;
+        *)
+            print_color "Unknown model command: $1" "$RED"
+            print_color "Available: list, download, current, switch" "$YELLOW"
+            ;;
+    esac
+}
+
+# Main command handling
+case "$1" in
+    start)
+        start_server
+        ;;
+    stop)
+        stop_server
+        ;;
+    restart)
+        stop_server
+        start_server
+        ;;
+    status)
+        show_status
+        ;;
+    logs)
+        docker logs "${@:2}" "${CONTAINER_NAME}"
+        ;;
+    monitor)
+        ./scripts/monitor.sh
+        ;;
+    chat)
+        chat_mode
+        ;;
+    query)
+        send_query "${@:2}"
+        ;;
+    model)
+        model_command "${@:2}"
+        ;;
+    config)
+        case "$2" in
+            show)
+                print_color "Current configuration:" "$BLUE"
+                cat .env
+                ;;
+            edit)
+                ${EDITOR:-nano} .env
+                ;;
+            *)
+                print_color "Usage: llm config [show|edit]" "$YELLOW"
+                ;;
+        esac
+        ;;
+    update)
+        print_color "Updating server..." "$BLUE"
+        docker compose pull
+        docker compose build --no-cache
+        print_color "Update complete. Restart server to apply: llm restart" "$GREEN"
+        ;;
+    help|--help|-h|"")
+        print_help
+        ;;
+    *)
+        print_color "Unknown command: $1" "$RED"
+        print_help
+        exit 1
+        ;;
+esac
